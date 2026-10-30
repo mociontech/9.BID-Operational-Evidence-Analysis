@@ -1,6 +1,21 @@
 # Reproductor local — IDB Group
 
-Esta versión **no usa Supabase, Netlify ni servicios externos**. Una sola computadora sirve la aplicación y `Images/Video.mp4`, con dos ventanas vinculadas: televisión y control táctil. Funciona con un solo monitor y mouse o con pantalla touch y televisión HDMI. No comprueba ni exige que Windows esté en modo Extender. Una vez instaladas las dependencias, no requiere internet. Los recursos visuales originales permanecen intactos.
+El proyecto admite dos modalidades: servidor local sin internet y despliegue estático en Netlify con pantalla y control en dos ventanas de la misma computadora. Funciona con un solo monitor y mouse o con pantalla touch y televisión HDMI. No comprueba ni exige que Windows esté en modo Extender. Los recursos visuales originales permanecen intactos.
+
+## Netlify: dos ventanas de la misma computadora
+
+El archivo `netlify.toml` configura `npm run build:netlify` y publica `dist`. Esta compilación incluye el video real como `/local-video.mp4`, las rutas `/pantalla`, `/control` y `/tablet`, y la comunicación entre ventanas mediante BroadcastChannel. No necesita un servidor WebSocket.
+
+1. Conectar el repositorio de esta experiencia a Netlify y desplegar la rama `main`.
+2. Para descargar el video de Git LFS durante el checkout, configurar `GIT_LFS_ENABLED=true` en las variables de entorno de Netlify. No se configura en `netlify.toml` porque Netlify clona el repositorio antes de leer ese archivo. Si el checkout entrega un puntero, la compilación intenta `git lfs pull` y se detiene con un mensaje si no consigue el archivo real.
+3. Abrir el sitio, pulsar **Abrir televisión**, luego **Abrir control táctil**, y activar la pantalla desde su ventana.
+4. Usar el mismo navegador, perfil y dominio en ambas ventanas. Permitir las ventanas emergentes. No combinar una ventana privada con una normal.
+
+Esta modalidad necesita internet para descargar la página y el video; no conecta dispositivos separados. Al recargar la pantalla, el control se vuelve a vincular y hay que activar el video de nuevo. Las opciones de QR para otro dispositivo se muestran únicamente en la modalidad de servidor local.
+
+Para una subida manual a Netlify, ejecutar `npm run build:netlify` y subir **la carpeta `dist` completa**, incluido `_redirects` y `local-video.mp4`. `npm run build` conserva la compilación para el servidor local.
+
+Prueba del despliegue estático: `npm run test:netlify`. Cubre rutas, video, reproducción, controles y reconexión sin un servidor de aplicación.
 
 ## Iniciar en Windows
 
@@ -75,4 +90,4 @@ Las pruebas de navegador requieren Chromium disponible para Playwright o Google 
 
 ## Alcance de esta entrega
 
-El video se almacena en la computadora en esta versión, de acuerdo con la solicitud de trabajar sin servicios de nube de momento. No se ha publicado una URL pública. La arquitectura separa transporte, reproducción e interfaz para incorporar almacenamiento en la nube y comunicación remota en una fase posterior. No basta con subir `dist` a un alojamiento estático: el servidor local también gestiona el video y la conexión WebSocket.
+En la modalidad local, el servidor gestiona el video y la conexión WebSocket, y permite un dispositivo de control en la misma red. En Netlify se utiliza la compilación específica descrita arriba, que incluye el video y comunica ventanas del mismo navegador. Conectar una tablet separada al despliegue público requiere un servicio de comunicación adicional.

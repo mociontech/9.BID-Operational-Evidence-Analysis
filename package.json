@@ -7,9 +7,11 @@
     "dev": "node scripts/dev.mjs",
     "start": "node scripts/dev.mjs --production",
     "build": "vite build",
+    "build:netlify": "node scripts/build-netlify.mjs",
     "preview": "vite preview --host 0.0.0.0",
     "test": "node --test tests/*.test.mjs",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:netlify": "playwright test --config=playwright.netlify.config.js"
   },
   "dependencies": {
     "qrcode": "^1.5.4"

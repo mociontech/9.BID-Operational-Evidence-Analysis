@@ -1,6 +1,6 @@
 import './style.css';
 import QRCode from 'qrcode';
-import { connect } from './transport.js';
+import { connect, staticHosting } from './transport.js';
 import { Player } from './player.js';
 import { controlUrl, currentScreen, followScreen, openWindow, shareScreen } from './desktop.js';
 import { enterFullscreen, setupTabletFullscreen } from './fullscreen.js';
@@ -33,7 +33,7 @@ document.addEventListener('visibilitychange', () => {
 });
 
 if (!isScreen && !isTablet) {
-  app.innerHTML = `<section class="launcher"><span class="eyebrow">IDB GROUP · EXPERIENCIA INTERACTIVA</span><h1>Project Supervision<br><em>with Focus on Results</em></h1><p>El video y su control, desde una sola computadora.</p><div class="choices"><button id="open-screen" class="choice primary"><span>01 · VIDEO</span><strong>Abrir televisión</strong><small>Abre el reproductor en otra ventana →</small></button><button id="open-control" class="choice" disabled><span>02 · CONTROLES</span><strong>Abrir control táctil</strong><small>Se vincula automáticamente con el reproductor →</small></button></div><p id="desktop-status" role="status">Primero abre la televisión.</p><p class="footnote">Puedes probar ambas ventanas en este mismo monitor, con mouse o touch.<br>Cuando conectes la televisión, arrastra allí la ventana del video.<br>La pantalla completa es opcional. No requiere internet.</p><p id="notice" class="notice" role="alert" hidden></p></section>`;
+  app.innerHTML = `<section class="launcher"><span class="eyebrow">IDB GROUP · EXPERIENCIA INTERACTIVA</span><h1>Project Supervision<br><em>with Focus on Results</em></h1><p>El video y su control, desde una sola computadora.</p><div class="choices"><button id="open-screen" class="choice primary"><span>01 · VIDEO</span><strong>Abrir televisión</strong><small>Abre el reproductor en otra ventana →</small></button><button id="open-control" class="choice" disabled><span>02 · CONTROLES</span><strong>Abrir control táctil</strong><small>Se vincula automáticamente con el reproductor →</small></button></div><p id="desktop-status" role="status">Primero abre la televisión.</p><p class="footnote">Puedes probar ambas ventanas en este mismo monitor, con mouse o touch.<br>Cuando conectes la televisión, arrastra allí la ventana del video.<br>La pantalla completa es opcional. ${staticHosting ? "Abre ambas ventanas en el mismo navegador y perfil. Se necesita internet para cargar la experiencia." : "No requiere internet."}</p><p id="notice" class="notice" role="alert" hidden></p></section>`;
   $('#open-screen').onclick = () => {
     if (!openWindow('/pantalla', 'totem-screen')) message('Permite las ventanas emergentes de este sitio y vuelve a pulsar Abrir televisión.');
   };
@@ -52,6 +52,7 @@ if (!isScreen && !isTablet) {
   app.innerHTML = `<section class="screen-stage"><img id="screen-home" src="${screenHome}" alt="Project Supervision with Focus on Results. Tap the Tablet to explore."><video id="video" src="/local-video.mp4" preload="auto" playsinline disablepictureinpicture></video></section>
     <button id="settings" class="settings" aria-label="Abrir configuración">⚙</button>
     <section id="setup" class="overlay"><div class="setup-card"><span class="eyebrow">PREPARACIÓN DE LA TELEVISIÓN</span><h1>Dos vistas. Una computadora.</h1><p>Activa el video y abre el control táctil en otra ventana.<br>Puedes usar ambas ventanas en este mismo monitor o mover el video a una televisión.</p><button id="open-local-control" class="secondary" disabled>Abrir control táctil</button><details class="remote-pairing"><summary>Conectar otro dispositivo (opcional)</summary><div class="pairing"><canvas id="qr"></canvas><div><label for="network">Dirección de esta computadora</label><select id="network"></select><a id="pair-link" target="_blank" rel="noopener">Preparando conexión…</a><button id="copy-link" class="secondary">Copiar enlace</button><small>Solo para controlar desde otro dispositivo en la misma red.</small></div></div></details><p id="connection" role="status">Conectando…</p><button id="arm" class="primary" disabled>Activar pantalla</button><button id="screen-fullscreen" class="secondary">Pantalla completa (opcional)</button><button id="close-setup" class="secondary" hidden>Volver a la pantalla</button><p class="footnote">Activar pantalla habilita el audio y conserva el tamaño de la ventana.<br>Usa pantalla completa después de colocar cada ventana donde prefieras.</p></div></section><p id="notice" class="notice" role="alert" hidden></p>`;
+  if (staticHosting) $('.remote-pairing').hidden = true;
   const video = $('#video');
   let invitation, player, publishing = false, commandQueue = Promise.resolve();
   const update = () => {
@@ -74,14 +75,14 @@ if (!isScreen && !isTablet) {
   }
   const origins = [location.origin];
   try {
-    const addresses = await fetch('/api/network').then(r => r.json());
+    const addresses = staticHosting ? [] : await fetch('/api/network').then(r => r.json());
     addresses.forEach(origin => { if (!origins.includes(origin)) origins.push(origin); });
   } catch { /* Current origin remains usable. */ }
   const select = $('#network');
   for (const origin of origins) select.add(new Option(origin, origin));
   if (['localhost', '127.0.0.1'].includes(location.hostname) && origins.length > 1) select.value = origins[1];
   async function renderInvitation() {
-    if (!invitation) return;
+    if (!invitation || staticHosting) return;
     const url = new URL('/tablet', select.value);
     url.searchParams.set('room', invitation.room);
     url.hash = `token=${invitation.token}`;
@@ -116,7 +117,7 @@ if (!isScreen && !isTablet) {
       },
       onStatus: (online, error) => {
         connected = online;
-        $('#connection').textContent = online ? 'Conexión local lista' : error || 'Reconectando al servidor local…';
+        $('#connection').textContent = online ? 'Conexión lista' : error || (staticHosting ? 'Abre pantalla y control en el mismo navegador y perfil.' : 'Reconectando al servidor local…');
         $('#arm').disabled = !online;
         publish();
       },
