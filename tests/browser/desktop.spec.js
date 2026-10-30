@@ -1,0 +1,35 @@
+import { test, expect } from '@playwright/test';
+
+test('one computer opens paired windows without fullscreen or a second monitor', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#open-control')).toBeDisabled();
+  const screenPromise = page.waitForEvent('popup');
+  await page.locator('#open-screen').click();
+  const screen = await screenPromise;
+  await expect(screen.locator('#arm')).toBeEnabled();
+  await expect(page.locator('#open-control')).toBeEnabled();
+  const controlPromise = page.waitForEvent('popup');
+  await page.locator('#open-control').click();
+  const control = await controlPromise;
+  await expect(control).toHaveURL(/\/control\?room=.+#token=/);
+  await screen.locator('#arm').click();
+  await expect(control.locator('#tablet-home')).toBeEnabled();
+  expect(await screen.evaluate(() => document.fullscreenElement)).toBeNull();
+  await control.locator('#tablet-home').click();
+  await expect(control.locator('.control-guidance')).toBeVisible();
+  await expect(screen.locator('#video')).toHaveJSProperty('paused', true);
+  expect(await control.evaluate(() => document.fullscreenElement)).toBeNull();
+  await expect(control.locator('.control-guidance')).toBeHidden({ timeout: 8000 });
+  await expect(screen.locator('#video')).toHaveJSProperty('paused', false);
+  await control.locator('#play-pause').click();
+  await expect(screen.locator('#video')).toHaveJSProperty('paused', true);
+  await expect(control.locator('[data-action="back"]')).toBeEnabled();
+  await control.locator('[data-action="back"]').click();
+  await expect(screen.locator('#screen-home')).toBeVisible();
+  const oldUrl = control.url();
+  await screen.reload();
+  await expect.poll(() => control.url()).not.toBe(oldUrl);
+  await screen.locator('#arm').click();
+  await expect(control.locator('#tablet-home')).toBeEnabled();
+  await control.close(); await screen.close();
+});
