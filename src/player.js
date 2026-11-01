@@ -5,10 +5,11 @@ export const PREVIEW_TIME = 1;
 export class Player {
   constructor(video, notify) {
     this.video = video; this.notify = notify;
+    this.analytics = globalThis.BIDAnalytics?.create(video);
     this.boot = uniqueId(); this.run = 0; this.mode = 'home'; this.ready = false;
     this.intro = false;
     this.error = ''; this.lastCommand = null; this.seen = new Set(); this.snapshots = new Map();
-    video.addEventListener('ended', () => this.home());
+    video.addEventListener('ended', () => this.home('ended'));
     for (const event of ['play', 'pause', 'seeked', 'loadedmetadata', 'waiting', 'playing', 'canplay']) video.addEventListener(event, () => notify());
     video.addEventListener('error', () => {
       this.ready = false; this.error = 'No se pudo cargar el video. Revisa el archivo Video.mp4 y reinicia la pantalla.'; notify();
@@ -34,7 +35,8 @@ export class Player {
     this.notify();
     return this.ready;
   }
-  home() {
+  home(reason = 'home') {
+    this.analytics?.end(reason);
     this.intro = false;
     this.video.pause(); this.video.currentTime = 0; this.mode = 'home'; this.run++;
     this.notify();
@@ -58,27 +60,30 @@ export class Player {
     if (this.seen.size > 512) this.seen.delete(this.seen.values().next().value);
     this.lastCommand = command.id; this.error = '';
     try {
-      if (command.action === 'back') this.home();
+      if (command.action === 'back') { this.analytics?.action('home'); this.home(); }
       else if (command.action === 'start' && this.mode === 'home') {
         this.run++;
         await this.preparePreview();
         this.intro = true; this.mode = 'video';
+        this.analytics?.start();
       } else if (command.action === 'intro-complete' && this.mode === 'video' && this.intro) {
         this.intro = false;
+        this.analytics?.enable();
         await this.video.play();
       } else if (this.mode === 'video' && !this.intro) {
-        if (command.action === 'reboot') { this.run++; this.video.currentTime = 0; await this.video.play(); }
-        if (command.action === 'play') await this.video.play();
+        if (command.action === 'reboot') { this.analytics?.action('restart', 0); this.run++; this.video.currentTime = 0; await this.video.play(); }
+        if (command.action === 'play') { this.analytics?.action('play'); await this.video.play(); }
         if (command.action === 'pause') this.video.pause();
         if (command.action === 'skip' || command.action === 'seek') {
           const next = clamp(command.action === 'skip' ? this.video.currentTime + command.value : command.value, this.video.duration);
-          if (next >= this.video.duration) this.home();
+          this.analytics?.action(command.action === 'seek' ? 'seek' : command.value < 0 ? 'backward' : 'forward', next);
+          if (next >= this.video.duration) this.home('seek_to_end');
           else this.video.currentTime = next;
         }
       }
     } catch {
       this.error = 'La reproducción está bloqueada. Activa la pantalla de nuevo desde la computadora.';
-      this.ready = false; this.home();
+      this.ready = false; this.home('playback_error');
     }
     this.notify();
   }

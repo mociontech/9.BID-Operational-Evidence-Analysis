@@ -1,0 +1,56 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function projectAllowed(project) {
+      return project in ['bid-01', 'bid-02', 'bid-03', 'bid-04', 'bid-05', 'bid-06',
+                        'bid-07', 'bid-08', 'bid-09', 'bid-10', 'bid-11', 'bid-12'];
+    }
+    function owner(data) {
+      return request.auth != null && data.ownerUid == request.auth.uid;
+    }
+    match /bidProjects/{project}/sessions/{session} {
+      allow read: if owner(resource.data);
+      function validSession() {
+        return projectAllowed(project) && owner(request.resource.data)
+        && request.resource.data.keys().hasOnly(['id', 'projectId', 'projectName', 'deviceId',
+          'startedAt', 'endedAt', 'endReason', 'status', 'duration', 'lastPosition',
+          'watchedSeconds', 'segments', 'eventCount', 'version', 'ownerUid', 'receivedAt'])
+        && request.resource.data.id == session && request.resource.data.projectId == project
+        && request.resource.data.status in ['active', 'closed']
+        && request.resource.data.duration is number && request.resource.data.duration >= 0
+        && request.resource.data.watchedSeconds is number && request.resource.data.watchedSeconds >= 0
+        && request.resource.data.eventCount is int && request.resource.data.eventCount > 0
+        && request.resource.data.version is int && request.resource.data.version > 0
+        && request.resource.data.segments is map && request.resource.data.segments.size() <= 20000
+        && request.resource.data.startedAt is string
+        && request.resource.data.receivedAt == request.time;
+      }
+      allow create: if validSession();
+      allow update: if validSession() && owner(resource.data)
+        && request.resource.data.version >= resource.data.version;
+      allow delete: if false;
+      match /events/{event} {
+        allow read: if owner(resource.data);
+        function validEvent() {
+          return projectAllowed(project) && owner(request.resource.data)
+          && owner(getAfter(/databases/$(database)/documents/bidProjects/$(project)/sessions/$(session)).data)
+          && request.resource.data.keys().hasOnly(['id', 'sessionId', 'projectId', 'sequence',
+            'type', 'at', 'position', 'from', 'to', 'reason', 'code', 'ownerUid', 'receivedAt'])
+          && request.resource.data.id == event && request.resource.data.sessionId == session
+          && request.resource.data.projectId == project
+          && request.resource.data.sequence is int && request.resource.data.sequence > 0
+          && request.resource.data.position is number && request.resource.data.position >= 0
+          && request.resource.data.at is string
+          && request.resource.data.type in ['session_start', 'intro_complete', 'session_end',
+            'play', 'pause', 'playing', 'waiting', 'forward', 'backward', 'seek', 'restart',
+            'home', 'watch_range', 'video_error']
+          && request.resource.data.receivedAt == request.time;
+        }
+        allow create: if validEvent();
+        allow update: if validEvent() && owner(resource.data)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['receivedAt']);
+        allow delete: if false;
+      }
+    }
+  }
+}

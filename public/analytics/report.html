@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="es">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Interacciones de video · BID</title>
+<style>
+body{font:16px system-ui,sans-serif;max-width:1100px;margin:40px auto;padding:0 24px;color:#16324b;background:#f5f8fc}button,input{font:inherit;padding:10px;margin:4px}button{cursor:pointer}table{border-collapse:collapse;width:100%;background:white;margin:20px 0}th,td{text-align:left;border-bottom:1px solid #dbe4ee;padding:10px}#status{white-space:pre-wrap}label{display:block;margin-top:20px}.bar{background:#2676e8;height:10px;min-width:1px}h1{font-size:28px}small{display:block;line-height:1.6}
+</style>
+<h1>Interacciones de los videos</h1>
+<p>Consulta los registros de este navegador o combina exportaciones de varios proyectos y equipos.</p>
+<button id="refresh">Actualizar datos locales</button>
+<button id="json">Exportar sesiones y eventos (JSON)</button>
+<button id="csv">Exportar tramos (CSV)</button>
+<button id="sync">Sincronizar pendientes</button>
+<label>Combinar archivos JSON: <input id="imports" type="file" accept="application/json,.json" multiple></label>
+<p id="status" role="status"></p>
+<small>Una sesión corresponde a una entrada desde la portada, sin identificar a la persona. Los tramos suman segundos de video reproducidos, incluidas las repeticiones. Un salto no suma reproducción. Esta página muestra datos locales o importados; Firebase Console permite consultar los registros de otros equipos.</small>
+<h2>Sesiones</h2><div id="sessions"></div>
+<h2>Tramos más reproducidos</h2><div id="segments"></div>
+<script src="config.js"></script><script src="tracker.js"></script><script src="report.js"></script>
+</html>

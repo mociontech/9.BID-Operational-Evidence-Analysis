@@ -4,3 +4,8 @@
 
 [build.environment]
   NODE_VERSION = "22"
+
+[[headers]]
+  for = "/analytics/*"
+  [headers.values]
+    Cache-Control = "no-cache, max-age=0, must-revalidate"

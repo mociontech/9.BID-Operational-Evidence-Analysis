@@ -1,3 +1,4 @@
+import './validate-firebase.mjs';
 import { build } from 'vite';
 import { copyFile, open } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
