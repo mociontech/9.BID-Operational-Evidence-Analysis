@@ -131,7 +131,8 @@ if (!isScreen && !isTablet) {
   } catch (error) { message(error.message); }
   setInterval(publish, 400);
 } else {
-  let state, received = 0, pending = null, pendingTimer, seeking = false, queuedSkip = 0;
+  let state, received = 0, pending = null, pendingTimer, seeking = false;
+  const queuedSkips = [];
   app.innerHTML = `<section class="tablet-stage"><button id="tablet-home" class="tablet-home" aria-label="Iniciar video en la pantalla" disabled><img src="${tabletHome}" alt="Project Supervision with Focus on Results. Tap to play the video on the screen."></button><section id="controller" class="controller" hidden><img class="controller-bg" src="${tabletBackground}" alt="Project Supervision with Focus on Results"><div class="timeline"><input id="seek" type="range" min="0" max="100" step="0.1" value="0" aria-label="Posición del video"><div class="times"><output id="elapsed">0:00</output><span id="playback-state"></span><output id="duration">0:00</output></div></div><div class="controls"><button data-action="reboot" aria-label="Reboot: reiniciar y reproducir"><img src="${reboot}" alt="Reboot"></button><button data-action="skip" data-value="-10" aria-label="Retroceder 10 segundos"><img src="${back10}" alt="-10"></button><button id="play-pause" aria-label="Pausar"><img id="play-art" src="${play}" alt="Play"><span id="pause-art"><svg viewBox="0 0 64 64" aria-hidden="true"><path d="M22 12v40M42 12v40"/></svg><span>Pause</span></span></button><button data-action="skip" data-value="10" aria-label="Adelantar 10 segundos"><img src="${forward10}" alt="+10"></button><button data-action="back" aria-label="Back: volver al inicio"><img src="${back}" alt="Back"></button></div></section></section><div id="tablet-status" class="tablet-status" role="status">Conectando con la pantalla…</div><p id="notice" class="notice" role="alert" hidden></p>`;
   setupTabletFullscreen();
   const guidance = document.createElement('div');
@@ -185,7 +186,7 @@ if (!isScreen && !isTablet) {
     const active = state?.mode === 'video';
     const phase = active ? state.intro ? 'intro' : 'playing' : 'home';
     if (phase !== controlsPhase) { controlsPhase = phase; controlsIdle.show(phase === 'intro'); }
-    if (!active) queuedSkip = 0;
+    if (!active) queuedSkips.length = 0;
     $('#tablet-home').hidden = Boolean(active);
     $('#controller').hidden = !active;
     $('#tablet-home').disabled = !online || Boolean(pending);
@@ -208,12 +209,12 @@ if (!isScreen && !isTablet) {
   }
   async function send(action, value) {
     if (!available()) return;
-    if (pending) { if (action === 'skip') queuedSkip += value; return; }
+    if (pending) { if (action === 'skip') queuedSkips.push(value); return; }
     const command = { id: uniqueId(), action, value, boot: state.boot, run: state.run, snapshot: state.snapshot };
     pending = command.id; message(''); render();
-    pendingTimer = setTimeout(() => { pending = null; message('La pantalla no confirmó la orden. Revisa la conexión y vuelve a intentarlo.'); render(); }, 4000);
+    pendingTimer = setTimeout(() => { pending = null; queuedSkips.length = 0; message('La pantalla no confirmó la orden. Revisa la conexión y vuelve a intentarlo.'); render(); }, 4000);
     try { await transport.send('command', command); }
-    catch (error) { clearTimeout(pendingTimer); pending = null; message(error.message); render(); }
+    catch (error) { clearTimeout(pendingTimer); pending = null; queuedSkips.length = 0; message(error.message); render(); }
   }
   $('#tablet-home').onclick = () => { send('start'); };
   document.querySelectorAll('[data-action]').forEach(button => {
@@ -249,8 +250,8 @@ if (!isScreen && !isTablet) {
           if (state.error) message(state.error);
           render();
           finishGuidance();
-          if (!pending && queuedSkip && state.mode === 'video' && !state.intro) {
-            const delta = queuedSkip; queuedSkip = 0; send('skip', delta);
+          if (!pending && queuedSkips.length && state.mode === 'video' && !state.intro) {
+            send('skip', queuedSkips.shift());
           }
         },
       });
