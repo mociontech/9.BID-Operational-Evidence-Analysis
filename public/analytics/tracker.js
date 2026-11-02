@@ -129,6 +129,12 @@
   }
   async function sendEvius() {
     if (status.evius === 'disabled' || status.evius === 'unauthorized' || eviusSending || navigator.onLine === false) return;
+    // Pantalla and control pages share this queue: only one page may send at a time, or a press goes out twice.
+    if (navigator.locks) return navigator.locks.request('bid-evius-send', { ifAvailable: true }, lock => lock ? sendEviusNow() : undefined);
+    return sendEviusNow();
+  }
+  async function sendEviusNow() {
+    if (eviusSending) return;
     eviusSending = true;
     let due = [];
     try {
