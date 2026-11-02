@@ -4,6 +4,7 @@
 
 [build.environment]
   NODE_VERSION = "22"
+  SECRETS_SCAN_OMIT_PATHS = "public/analytics/config.js,dist/analytics/config.js"
 
 [[headers]]
   for = "/analytics/*"
