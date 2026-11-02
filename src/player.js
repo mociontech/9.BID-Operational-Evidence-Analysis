@@ -76,8 +76,8 @@ export class Player {
         await this.video.play();
       } else if (this.mode === 'video' && !this.intro) {
         if (command.action === 'reboot') { this.seeker?.reset(); this.analytics?.action('restart', 0); this.run++; this.video.currentTime = 0; await this.video.play(); }
-        if (command.action === 'play') { this.analytics?.action('play'); await this.video.play(); }
-        if (command.action === 'pause') this.video.pause();
+        if (command.action === 'play') { this.analytics?.press('play'); this.analytics?.action('play'); await this.video.play(); }
+        if (command.action === 'pause') { this.analytics?.press('pause'); this.video.pause(); }
         if (command.action === 'skip' || command.action === 'seek') {
           const next = clamp(command.action === 'skip' ? (this.seeker?.position ?? this.video.currentTime) + command.value : command.value, this.video.duration);
           const action = command.action === 'seek' ? 'seek' : command.value < 0 ? 'backward' : 'forward';

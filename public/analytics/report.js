@@ -26,13 +26,17 @@
   }
   async function refresh() {
     try {
-      data = await BIDAnalytics.exportData(); render();
+      // Never hang: if the local database is blocked by another tab, say so.
+      data = await Promise.race([BIDAnalytics.exportData(), new Promise((_, reject) => setTimeout(() =>
+        reject(new Error(BIDAnalytics.status.error || 'La base local no responde. Cierra las demás pestañas del sitio y recarga.')), 8000))]);
+      render();
       const state = BIDAnalytics.status;
-      $('status').textContent = `${data.sessions.length} sesiones · ${data.events.length} eventos · ${await BIDAnalytics.pendingCount()} registros pendientes\nLocal: ${state.local} · Firebase: ${state.firebase}${state.error ? '\n' + state.error : ''}`;
+      const evius = BIDAnalytics.pendingEvius ? ` · Evius: ${state.evius} (${await BIDAnalytics.pendingEvius()} pulsaciones pendientes)` : '';
+      $('status').textContent = `${data.sessions.length} sesiones · ${data.events.length} eventos · ${await BIDAnalytics.pendingCount()} registros pendientes\nLocal: ${state.local} · Firebase: ${state.firebase}${evius}${state.error ? '\n' + state.error : ''}${state.eviusError ? '\nEvius: ' + state.eviusError : ''}`;
     } catch (error) { $('status').textContent = 'No se pudieron leer los datos locales: ' + error.message; }
   }
   $('refresh').onclick = refresh;
-  $('sync').onclick = async () => { $('status').textContent = 'Sincronizando…'; await BIDAnalytics.sync(); await refresh(); };
+  $('sync').onclick = async () => { $('status').textContent = 'Sincronizando…'; await Promise.all([BIDAnalytics.sync(), BIDAnalytics.sendEvius?.()]); await refresh(); };
   $('json').onclick = () => download('bid-interacciones.json', 'application/json', JSON.stringify(data, null, 2));
   $('csv').onclick = () => {
     const cell = value => `"${String(value).replace(/"/g, '""')}"`;

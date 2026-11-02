@@ -1,21 +1,33 @@
-/* Shared by all 12 projects. Run scripts/distribute-analytics.py after changes. */
+/* Shared by all 12 projects. Edit shared/analytics/tracker.js and run `node scripts/distribute-evius.mjs`. */
 (() => {
   'use strict';
   const config = globalThis.BID_ANALYTICS_CONFIG || {};
   const projectId = config.projectId;
   const uid = () => crypto.randomUUID?.() || Array.from(crypto.getRandomValues(new Uint8Array(16)), n => n.toString(16).padStart(2, '0')).join('');
   const seconds = value => Number.isFinite(value) ? Math.max(0, value) : 0;
-  const status = { local: 'starting', firebase: config.firebase ? 'pending' : 'disabled', error: null };
-  let database, cloud, syncing = false;
+  // Evius: each button press is queued locally and relayed by the Netlify function (the token never reaches the browser).
+  const evius = { endpoint: '/.netlify/functions/evius', batch: 200, ...(config.evius || {}) };
+  const BUTTON_OF = { restart: 'reboot', backward: 'retroceder', forward: 'adelantar', home: 'back', pause: 'pause', play: 'pause' };
+  const BACKOFF_MINUTES = [1, 2, 4, 8, 16, 30];
+  const status = { local: 'starting', firebase: config.firebase ? 'pending' : 'disabled',
+    evius: config.evius === false ? 'disabled' : 'pending', eviusError: null, error: null };
+  let database, cloud, syncing = false, eviusTimer, eviusSending = false;
   const request = req => new Promise((resolve, reject) => {
     req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error);
   });
   const ready = new Promise((resolve, reject) => {
-    const req = indexedDB.open(`bid-interactions-${projectId}`, 1);
+    const req = indexedDB.open(`bid-interactions-${projectId}`, 2);
     req.onupgradeneeded = () => {
-      for (const name of ['sessions', 'events', 'outbox']) req.result.createObjectStore(name, { keyPath: 'id' });
+      for (const name of ['sessions', 'events', 'outbox', 'evius']) {
+        if (!req.result.objectStoreNames.contains(name)) req.result.createObjectStore(name, { keyPath: 'id' });
+      }
     };
-    req.onsuccess = () => { database = req.result; status.local = 'ready'; resolve(); };
+    req.onsuccess = () => {
+      database = req.result; status.local = 'ready'; resolve();
+      // A newer tracker in another tab needs to upgrade the database: release it instead of blocking that tab.
+      database.onversionchange = () => { database.close(); status.local = 'closed'; failed('Base local cerrada: hay una versión más nueva del tótem en otra pestaña. Recarga esta página.'); };
+    };
+    req.onblocked = () => { status.local = 'blocked'; failed('Base local bloqueada por otra pestaña del tótem con una versión anterior. Cierra las demás pestañas del sitio y recarga.'); };
     req.onerror = () => reject(req.error);
   });
   function failed(error) {
@@ -95,6 +107,72 @@
       status.firebase = 'error'; failed(error);
     } finally { syncing = false; }
   }
+  // ---- Evius relay -------------------------------------------------------------------------
+  function eviusFailed(error) {
+    status.eviusError = String(error?.message || error);
+    console.warn('[BID analytics > Evius]', status.eviusError);
+  }
+  const backoff = attempts => BACKOFF_MINUTES[Math.min(attempts, BACKOFF_MINUTES.length - 1)] * 60000;
+  function scheduleEvius(delay) {
+    if (status.evius === 'disabled' || status.evius === 'unauthorized') return;
+    clearTimeout(eviusTimer);
+    eviusTimer = setTimeout(() => sendEvius().catch(() => {}), Math.max(0, delay));
+  }
+  function postpone(records) {
+    return transaction(['evius'], tx => {
+      const store = tx.objectStore('evius');
+      for (const record of records) {
+        const attempts = (record.attempts || 0) + 1;
+        store.put({ ...record, attempts, nextAt: Date.now() + backoff(attempts - 1) });
+      }
+    }).catch(() => {});
+  }
+  async function sendEvius() {
+    if (status.evius === 'disabled' || status.evius === 'unauthorized' || eviusSending || navigator.onLine === false) return;
+    eviusSending = true;
+    let due = [];
+    try {
+      const queue = await all('evius');
+      const now = Date.now();
+      due = queue.filter(r => (r.nextAt || 0) <= now).sort((a, b) => a.at.localeCompare(b.at)).slice(0, evius.batch);
+      if (!due.length) {
+        if (status.evius !== 'error') status.evius = queue.length ? 'waiting' : 'synced';
+        return;
+      }
+      status.evius = 'sending';
+      // A hung request must never freeze the queue: give up after 30 s and retry later.
+      const response = await fetch(evius.endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(30000),
+        body: JSON.stringify({ projectId, records: due.map(({ attempts, nextAt, ...record }) => record) }) });
+      const isJson = (response.headers.get('content-type') || '').includes('json');
+      const body = isJson ? await response.json().catch(() => null) : null;
+      if (response.status === 401 || body?.unauthorized) {
+        status.evius = 'unauthorized';
+        eviusFailed(body?.error || 'Evius rechazo el token. Renueva EVIUS_TOKEN en Netlify; no se reintenta.');
+        return;
+      }
+      if (!body) throw new Error(`Relevo Evius no disponible (HTTP ${response.status})`);
+      // Delivered or permanently invalid records leave the queue; the rest wait with growing delay.
+      const done = new Set([...(body.sent || []), ...(body.rejected || [])]);
+      await transaction(['evius'], tx => {
+        const store = tx.objectStore('evius');
+        for (const record of due) if (done.has(record.id)) store.delete(record.id);
+      });
+      const retry = due.filter(record => !done.has(record.id));
+      due = [];
+      if (retry.length) await postpone(retry);
+      if (body.rejected?.length) eviusFailed(`${body.rejected.length} registro(s) invalidos descartados`);
+      if (!response.ok || !body.ok) throw new Error(body.error || (body.errors || []).join('; ') || `HTTP ${response.status}`);
+      status.evius = body.skipped ? `off (EVIUS_MODE=${body.mode})` : 'synced'; status.eviusError = null;
+    } catch (error) {
+      status.evius = 'error'; eviusFailed(error);
+      if (due.length) await postpone(due);
+    } finally {
+      eviusSending = false;
+      const remaining = await all('evius').catch(() => []);
+      if (remaining.length) scheduleEvius(Math.min(...remaining.map(r => r.nextAt || 0)) - Date.now() + 1000);
+    }
+  }
   class Recorder {
     constructor(video) {
       this.video = video; this.session = null; this.enabled = false; this.last = null; this.pending = [];
@@ -145,7 +223,19 @@
       this.sample(); this.flushRange();
       this.event(type, target === undefined ? {} : { from: seconds(this.video.currentTime), to: seconds(target) });
       if (target !== undefined) this.last = null;
+      // 'play' also fires automatically after the intro; the player reports that button via press().
+      if (type !== 'play') this.press(type);
       this.save();
+    }
+    // One physical button press for Evius: restart | backward | forward | home | pause | play.
+    press(type) {
+      const button = BUTTON_OF[type];
+      if (!button || !this.session || status.evius === 'disabled') return;
+      const record = { id: uid(), sessionId: this.session.id, projectId, projectName: config.projectName || null,
+        deviceId: config.deviceId || null, button, action: type, at: new Date().toISOString(),
+        position: seconds(this.video.currentTime), attempts: 0, nextAt: 0 };
+      transaction(['evius'], tx => tx.objectStore('evius').put(record))
+        .then(() => scheduleEvius(500)).catch(eviusFailed);
     }
     sample() {
       if (!this.session || !this.enabled) return;
@@ -196,8 +286,10 @@
       sessions: await all('sessions'), events: await all('events') };
   }
   globalThis.BIDAnalytics = { create: video => new Recorder(video), status, sync, exportData,
-    pendingCount: async () => (await all('outbox')).length };
-  globalThis.addEventListener('online', sync);
+    pendingCount: async () => (await all('outbox')).length,
+    sendEvius, pendingEvius: async () => (await all('evius')).length };
+  globalThis.addEventListener('online', () => { sync(); scheduleEvius(0); });
   setInterval(sync, 30000);
-  ready.then(sync).catch(() => {});
+  setInterval(() => scheduleEvius(0), 60000);
+  ready.then(() => { sync(); scheduleEvius(2000); }).catch(() => {});
 })();
