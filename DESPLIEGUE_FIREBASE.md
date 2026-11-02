@@ -19,4 +19,12 @@ Este repositorio funciona por separado de los otros 11; no necesita archivos de 
 
 Se registran pausas, reproducción, avances, retrocesos, reinicios y tramos reproducidos. Primero se guardan localmente y se reintentan envíos al recuperar internet. Cada dominio tiene su propia cola local; los datos centrales se separan por ID de proyecto en Firebase.
 
+## Controles y video
+
+Los controles y la barra se ocultan después de 2 segundos sin interacción y reaparecen al tocar el fondo. Permanecen visibles durante las instrucciones y mientras mantienes pulsado un botón o arrastras la barra. Los saltos rápidos acumulan su desplazamiento y agrupan las solicitudes al decodificador.
+
+La primera apertura prepara el video completo y muestra su progreso. Después se reproduce desde una copia local, y se conserva en la caché del navegador cuando hay espacio. Los videos grandes se guardan en fragmentos; cada nueva versión tiene una huella SHA-256 distinta, de modo que no se reutilice un video anterior. Si el navegador rechaza el almacenamiento, la copia completa sigue disponible durante esa visita; cerrar la pestaña puede requerir descargarla otra vez. La caché del video no guarda el sitio completo para abrirlo sin internet desde cero.
+
+Al reemplazar `Images/Video.mp4`, ejecuta **`node scripts/update-video.mjs`** y sube también `public/playback/media.js` junto al video usando Git LFS. Los proyectos con compilación también regeneran esa versión automáticamente durante el build de Netlify.
+
 El reporte muestra datos locales o JSON importados. Firebase Console permite consultar lo recibido desde otros equipos. Netlify publica los cambios de la rama de producción de este repositorio; las reglas de Firestore se administran por separado en Firebase.

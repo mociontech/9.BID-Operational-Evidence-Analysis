@@ -36,6 +36,7 @@ test('static deployment serves routes and a real seekable video without a relay'
   await expect(control.locator('.control-guidance')).toBeVisible();
   await expect(control.locator('.control-guidance')).toBeHidden({ timeout: 8000 });
   await expect(screen.locator('#video')).toHaveJSProperty('paused', false);
+  await control.locator('.controller-bg').evaluate(image => { if (image.parentElement.classList.contains('controls-hidden')) image.click(); });
   await control.locator('#play-pause').click();
   await expect(screen.locator('#video')).toHaveJSProperty('paused', true);
   await expect(control.locator('#seek')).toBeEnabled();

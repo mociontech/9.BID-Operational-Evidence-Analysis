@@ -6,6 +6,9 @@ export class Player {
   constructor(video, notify) {
     this.video = video; this.notify = notify;
     this.analytics = globalThis.BIDAnalytics?.create(video);
+    this.seeker = globalThis.BIDPlayback?.createSeek(video, {
+      onRequest: (action, target) => this.analytics?.action(action, target),
+    });
     this.boot = uniqueId(); this.run = 0; this.mode = 'home'; this.ready = false;
     this.intro = false;
     this.error = ''; this.lastCommand = null; this.seen = new Set(); this.snapshots = new Map();
@@ -36,6 +39,7 @@ export class Player {
     return this.ready;
   }
   home(reason = 'home') {
+    this.seeker?.reset();
     this.analytics?.end(reason);
     this.intro = false;
     this.video.pause(); this.video.currentTime = 0; this.mode = 'home'; this.run++;
@@ -71,14 +75,15 @@ export class Player {
         this.analytics?.enable();
         await this.video.play();
       } else if (this.mode === 'video' && !this.intro) {
-        if (command.action === 'reboot') { this.analytics?.action('restart', 0); this.run++; this.video.currentTime = 0; await this.video.play(); }
+        if (command.action === 'reboot') { this.seeker?.reset(); this.analytics?.action('restart', 0); this.run++; this.video.currentTime = 0; await this.video.play(); }
         if (command.action === 'play') { this.analytics?.action('play'); await this.video.play(); }
         if (command.action === 'pause') this.video.pause();
         if (command.action === 'skip' || command.action === 'seek') {
-          const next = clamp(command.action === 'skip' ? this.video.currentTime + command.value : command.value, this.video.duration);
-          this.analytics?.action(command.action === 'seek' ? 'seek' : command.value < 0 ? 'backward' : 'forward', next);
+          const next = clamp(command.action === 'skip' ? (this.seeker?.position ?? this.video.currentTime) + command.value : command.value, this.video.duration);
+          const action = command.action === 'seek' ? 'seek' : command.value < 0 ? 'backward' : 'forward';
           if (next >= this.video.duration) this.home('seek_to_end');
-          else this.video.currentTime = next;
+          else if (this.seeker) this.seeker.request(next, action);
+          else { this.analytics?.action(action, next); this.video.currentTime = next; }
         }
       }
     } catch {

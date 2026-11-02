@@ -49,11 +49,16 @@ if (!isScreen && !isTablet) {
   window.addEventListener('storage', updateLauncher);
   setInterval(updateLauncher, 1000); updateLauncher();
 } else if (isScreen) {
-  app.innerHTML = `<section class="screen-stage"><img id="screen-home" src="${screenHome}" alt="Project Supervision with Focus on Results. Tap the Tablet to explore."><video id="video" src="/local-video.mp4" preload="auto" playsinline disablepictureinpicture></video></section>
+  app.innerHTML = `<section class="screen-stage"><img id="screen-home" src="${screenHome}" alt="Project Supervision with Focus on Results. Tap the Tablet to explore."><video id="video" data-video-src="/local-video.mp4" preload="auto" playsinline disablepictureinpicture></video></section>
     <button id="settings" class="settings" aria-label="Abrir configuración">⚙</button>
     <section id="setup" class="overlay"><div class="setup-card"><span class="eyebrow">PREPARACIÓN DE LA TELEVISIÓN</span><h1>Dos vistas. Una computadora.</h1><p>Activa el video y abre el control táctil en otra ventana.<br>Puedes usar ambas ventanas en este mismo monitor o mover el video a una televisión.</p><button id="open-local-control" class="secondary" disabled>Abrir control táctil</button><details class="remote-pairing"><summary>Conectar otro dispositivo (opcional)</summary><div class="pairing"><canvas id="qr"></canvas><div><label for="network">Dirección de esta computadora</label><select id="network"></select><a id="pair-link" target="_blank" rel="noopener">Preparando conexión…</a><button id="copy-link" class="secondary">Copiar enlace</button><small>Solo para controlar desde otro dispositivo en la misma red.</small></div></div></details><p id="connection" role="status">Conectando…</p><button id="arm" class="primary" disabled>Activar pantalla</button><button id="screen-fullscreen" class="secondary">Pantalla completa (opcional)</button><button id="close-setup" class="secondary" hidden>Volver a la pantalla</button><p class="footnote">Activar pantalla habilita el audio y conserva el tamaño de la ventana.<br>Usa pantalla completa después de colocar cada ventana donde prefieras.</p></div></section><p id="notice" class="notice" role="alert" hidden></p>`;
   if (staticHosting) $('.remote-pairing').hidden = true;
   const video = $('#video');
+  let mediaPrepared = false;
+  const mediaReady = globalThis.BIDVideoCache?.prepare(video, {
+    onProgress: percent => message(percent === 100 ? '' : `Preparando video${percent === null ? '...' : `... ${percent}%`}`),
+  });
+  Promise.resolve(mediaReady).then(() => { mediaPrepared = true; $('#arm').disabled = !connected; });
   let invitation, player, publishing = false, commandQueue = Promise.resolve();
   const update = () => {
     if (!player) return;
@@ -100,6 +105,7 @@ if (!isScreen && !isTablet) {
   };
   $('#arm').onclick = async () => {
     $('#arm').disabled = true;
+    await mediaReady;
     if (await player.arm()) { $('#setup').hidden = true; $('#close-setup').hidden = false; }
     $('#arm').disabled = !connected;
   };
@@ -118,14 +124,14 @@ if (!isScreen && !isTablet) {
       onStatus: (online, error) => {
         connected = online;
         $('#connection').textContent = online ? 'Conexión lista' : error || (staticHosting ? 'Abre pantalla y control en el mismo navegador y perfil.' : 'Reconectando al servidor local…');
-        $('#arm').disabled = !online;
+        $('#arm').disabled = !online || !mediaPrepared;
         publish();
       },
     });
   } catch (error) { message(error.message); }
   setInterval(publish, 400);
 } else {
-  let state, received = 0, pending = null, pendingTimer, seeking = false;
+  let state, received = 0, pending = null, pendingTimer, seeking = false, queuedSkip = 0;
   app.innerHTML = `<section class="tablet-stage"><button id="tablet-home" class="tablet-home" aria-label="Iniciar video en la pantalla" disabled><img src="${tabletHome}" alt="Project Supervision with Focus on Results. Tap to play the video on the screen."></button><section id="controller" class="controller" hidden><img class="controller-bg" src="${tabletBackground}" alt="Project Supervision with Focus on Results"><div class="timeline"><input id="seek" type="range" min="0" max="100" step="0.1" value="0" aria-label="Posición del video"><div class="times"><output id="elapsed">0:00</output><span id="playback-state"></span><output id="duration">0:00</output></div></div><div class="controls"><button data-action="reboot" aria-label="Reboot: reiniciar y reproducir"><img src="${reboot}" alt="Reboot"></button><button data-action="skip" data-value="-10" aria-label="Retroceder 10 segundos"><img src="${back10}" alt="-10"></button><button id="play-pause" aria-label="Pausar"><img id="play-art" src="${play}" alt="Play"><span id="pause-art"><svg viewBox="0 0 64 64" aria-hidden="true"><path d="M22 12v40M42 12v40"/></svg><span>Pause</span></span></button><button data-action="skip" data-value="10" aria-label="Adelantar 10 segundos"><img src="${forward10}" alt="+10"></button><button data-action="back" aria-label="Back: volver al inicio"><img src="${back}" alt="Back"></button></div></section></section><div id="tablet-status" class="tablet-status" role="status">Conectando con la pantalla…</div><p id="notice" class="notice" role="alert" hidden></p>`;
   setupTabletFullscreen();
   const guidance = document.createElement('div');
@@ -138,6 +144,17 @@ if (!isScreen && !isTablet) {
   guidance.append(guidanceImage);
   $('#controller').append(guidance);
   let guidanceTimer, guidanceKey = null, guidanceComplete = false;
+  let controlsPhase = 'home';
+  const controlsIdle = globalThis.BIDPlayback.autoHide({
+    areas: [$('.controls'), $('.timeline')], active: () => state?.mode === 'video' && !state.intro,
+    onChange: visible => {
+      $('#controller').classList.toggle('controls-hidden', !visible);
+      for (const area of [$('.controls'), $('.timeline')]) area.inert = !visible;
+    },
+  });
+  $('#controller').addEventListener('click', event => {
+    if (state?.mode === 'video' && !state.intro && !event.target.closest('.controls, .timeline')) controlsIdle.show(!controlsIdle.visible);
+  });
   function hideGuidance() {
     clearTimeout(guidanceTimer);
     guidance.hidden = true;
@@ -166,11 +183,14 @@ if (!isScreen && !isTablet) {
   function render() {
     const online = available();
     const active = state?.mode === 'video';
+    const phase = active ? state.intro ? 'intro' : 'playing' : 'home';
+    if (phase !== controlsPhase) { controlsPhase = phase; controlsIdle.show(phase === 'intro'); }
+    if (!active) queuedSkip = 0;
     $('#tablet-home').hidden = Boolean(active);
     $('#controller').hidden = !active;
     $('#tablet-home').disabled = !online || Boolean(pending);
     document.querySelectorAll('.controls button, #seek').forEach(button => {
-      button.disabled = !online || Boolean(pending) || (Boolean(state?.intro) && button.dataset.action !== 'back');
+      button.disabled = !online || (Boolean(pending) && button.dataset.action !== 'skip') || (Boolean(state?.intro) && button.dataset.action !== 'back');
     });
     $('#tablet-status').textContent = !room || !token ? 'Abre Televisión y después Abrir control táctil desde la página de inicio.'
       : !connected || (state && performance.now() - received >= 3000) ? 'Sin conexión con la pantalla · Reconectando…'
@@ -187,7 +207,8 @@ if (!isScreen && !isTablet) {
     $('#play-pause').setAttribute('aria-label', state.paused ? 'Reproducir' : 'Pausar');
   }
   async function send(action, value) {
-    if (!available() || pending) return;
+    if (!available()) return;
+    if (pending) { if (action === 'skip') queuedSkip += value; return; }
     const command = { id: uniqueId(), action, value, boot: state.boot, run: state.run, snapshot: state.snapshot };
     pending = command.id; message(''); render();
     pendingTimer = setTimeout(() => { pending = null; message('La pantalla no confirmó la orden. Revisa la conexión y vuelve a intentarlo.'); render(); }, 4000);
@@ -228,6 +249,9 @@ if (!isScreen && !isTablet) {
           if (state.error) message(state.error);
           render();
           finishGuidance();
+          if (!pending && queuedSkip && state.mode === 'video' && !state.intro) {
+            const delta = queuedSkip; queuedSkip = 0; send('skip', delta);
+          }
         },
       });
     } catch (error) { message(error.message); }

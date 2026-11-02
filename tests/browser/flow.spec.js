@@ -34,6 +34,7 @@ test('two devices: playback, controls, end, reconnection and invalid pairing', a
   await expect(tablet.locator('.control-guidance')).toBeHidden({ timeout: 8000 });
   await expect(screen.locator('#video')).toHaveJSProperty('paused', false);
   await expect(tablet.locator('#play-pause')).toBeEnabled();
+  await tablet.locator('.controller-bg').evaluate(image => { if (image.parentElement.classList.contains('controls-hidden')) image.click(); });
   await tablet.locator('#play-pause').click();
   await expect(screen.locator('#video')).toHaveJSProperty('paused', true);
   await expect(tablet.locator('#play-pause')).toHaveAttribute('aria-label', 'Reproducir');

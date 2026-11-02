@@ -1,3 +1,4 @@
+import { updateVideoManifest } from './update-video.mjs';
 import { build } from 'vite';
 import { copyFile, open } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
@@ -17,6 +18,7 @@ if (await isPointer()) {
   catch { throw new Error('No se pudo descargar el video de Git LFS. Configura GIT_LFS_ENABLED=true en Netlify y vuelve a desplegar.'); }
   if (await isPointer()) throw new Error('Images/Video.mp4 sigue siendo un puntero de Git LFS; falta descargar el video real.');
 }
+await updateVideoManifest(root);
 await build({ root, mode: 'netlify' });
 await copyFile(video, new URL('../dist/local-video.mp4', import.meta.url));
 console.log('Video incluido en dist/local-video.mp4.');
